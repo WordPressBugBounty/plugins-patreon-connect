@@ -46,7 +46,11 @@ class Patron_Metabox {
 		
 		global $post;
 		
-		$label    = 'Require the below membership tier or higher to view this post. (Makes entire post patron only)  <a href="https://www.patreondevelopers.com/t/patreon-wordpress-locking-options-guide/1135#heading--section-1?utm_source=' . urlencode( site_url() ) . '&utm_medium=patreon_wordpress_plugin&utm_campaign=&utm_content=post_locking_metabox_link_1&utm_term=" target="_blank">(?)</a>';		
+		$label    = 'Require the below membership tier or higher to view this post. (Makes entire post patron only)  <a href="https://www.patreondevelopers.com/t/patreon-wordpress-locking-options-guide/1135#heading--section-1?utm_source=' . urlencode( site_url() ) . '&utm_medium=patreon_wordpress_plugin&utm_campaign=&utm_content=post_locking_metabox_link_1&utm_term=" target="_blank">(?)</a>';
+		
+		if ( get_option( 'patreon-creator-access-token-401', false ) ) {
+			$label = '<div style="color: #ffa00f;">Sorry, it looks like your site\'s connection to Patreon is broken. Please <a href="' . admin_url( 'admin.php?page=patreon-plugin' ). '">click here</a> to reconnect by using the "(re)Connect site" button.</div><br>' . $label;
+		}
 		
 		// Override messaging for lite plans
 		
@@ -89,20 +93,6 @@ class Patron_Metabox {
 		
 		<?php
 		
-			if ( !Patreon_Wordpress::check_plugin_exists('patron-plugin-pro') ) {
-			?>
-			
-				<p> Get <a href="https://codebard.com/patron-pro-addon-for-patreon-wordpress?utm_source=<?php urlencode( site_url())?>&utm_medium=patreon_wordpress_plugin&utm_campaign=&utm_content=patreon_wordpress_patreon_level_metabox_callout&utm_term=">Patron Pro Addon</a> for more advanced locking methods.</p>
-			
-			<?php
-			
-			}
-			else {
-			?>
-				<p> Use <a href="https://codebard.com/patron-plugin-pro-documentation/category/manual?utm_source=<?php urlencode( site_url())?>&utm_medium=patreon_wordpress_plugin&utm_campaign=&utm_content=patreon_wordpress_patreon_level_metabox_callout&utm_term=" target="_blank">Patron Pro's advanced locking methods</a> to fine-tune your content gating.</p>
-			
-			<?php
-			}
 			
 			$advanced_post_options_toggle_status_display = 'style=" display: block;" ';
 			
