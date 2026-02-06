@@ -5,6 +5,11 @@ class PatreonApiUtil
     public const CHECK_API_CONNECTION_COOLDOWN_KEY = 'patreon-check-api-connection-cooldown';
     public const REFRESH_CREATOR_TOKEN_COOLDOWN_KEY = 'patreon-wordpress-app-creator-token-refresh-cooldown';
 
+    public static function get_creator_access_token()
+    {
+        return get_option('patreon-creators-access-token', false);
+    }
+
     public static function get_default_headers()
     {
         return ['User-Agent' => self::get_patreon_ua()];
@@ -13,6 +18,11 @@ class PatreonApiUtil
     public static function is_app_creds_invalid()
     {
         return get_option('patreon-wordpress-app-credentials-failure', false);
+    }
+
+    public static function set_app_creds_invalid()
+    {
+        update_option('patreon-wordpress-app-credentials-failure', true);
     }
 
     public static function get_creator_token_refresh_cooldown()

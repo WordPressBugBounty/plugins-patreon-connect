@@ -66,7 +66,7 @@ class Patreon_Wordpress
 
         add_action('wp_head', [$this, 'updatePatreonUser'], 10);
         add_action('init', [$this, 'checkPatreonCreatorID']);
-        add_action('init', [$this, 'check_creator_tiers']);
+        add_action('admin_init', [$this, 'check_creator_tiers']);
         add_action('init', [$this, 'check_post_sync_webhook']);
         add_action('init', [&$this, 'order_independent_actions_to_run_on_init_start'], 0);
         add_action('init', [$this, 'check_plugin_activation_date_for_existing_installs']);
@@ -1184,6 +1184,11 @@ class Patreon_Wordpress
             exit;
         }
 
+        if ('app_credential_error' == $import_return) {
+            echo $import_return;
+            exit;
+        }
+
         // If did not import any posts
 
         if ('did_not_import_any_post' == $import_return) {
@@ -1459,7 +1464,7 @@ class Patreon_Wordpress
         }
 
         // All flopped. Set failure flag
-        update_option('patreon-wordpress-app-credentials-failure', true);
+        PatreonApiUtil::set_app_creds_invalid();
 
         return false;
     }
@@ -1986,16 +1991,21 @@ class Patreon_Wordpress
             $user_select = $Patreon_Wordpress->make_user_select($post_author_for_synced_posts);
 
             $api_version_warning = '';
+            $invalid_client_credential_error = '';
 
             if ('1' == $api_version) {
                 $api_version_warning = '<div id="patreon_api_version_warning" class="notice notice-info"><div class="patreon_api_version_warning_important">'.PATREON_WARNING_IMPORTANT.'</div>'.PATREON_API_VERSION_WARNING.'</div>';
+            }
+
+            if (PatreonApiUtil::is_app_creds_invalid()) {
+                $invalid_client_credential_error = '<div id="patreon_invalid_api_creds_error" class="notice notice-error">Invalid client client credentials detected, post sync is unavailable. Please follow the plugin re-connect flow.</div>';
             }
 
             echo '<div id="patreon_setup_screen">';
 
             echo '<div id="patreon_setup_logo"><img src="'.PATREON_PLUGIN_ASSETS.'/img/Patreon_Logo_100.png" /></div>';
             $patreon_wordpress_nonce_save_post_sync_options = wp_create_nonce();
-            echo '<div id="patreon_setup_content"><h1 style="margin-top: 0px;">How should posts be synced?</h1><div id="patreon_setup_message">'.$api_version_warning.$setup_message.'<div class="patreon_post_sync_choice"><div class="patreon_post_sync_choice_title">Sync posts to this category</div>'.PATREON_POST_SYNC_5.'<div style="display:block;margin-top:10px;width: 200px;"><select name="patreon_sync_post_type" id="patreon_sync_post_type" style="display: inline-block; margin-right: 5px; margin-bottom: 10px; font-size: 20px; width: 250px;">'.$post_type_select.'</select><select  name="patreon_sync_post_category" id="patreon_sync_post_category" style="display: inline-block; margin-right: 5px; margin-bottom: 10px; font-size: 20px; width: 250px;">'.$taxonomy_select.'</select><select name="patreon_sync_post_term" id="patreon_sync_post_term" style="display: inline-block; margin-right: 5px; margin-bottom: 10px; font-size: 20px; width: 250px;">'.$term_select.'</select><button id="patreon_wordpress_save_post_sync_category"  patreon_wordpress_nonce_save_post_sync_options="'.$patreon_wordpress_nonce_save_post_sync_options.'" class="button button-primary button-large" style="display: inline-block; margin-right: 5px; margin-bottom: 10px; font-size: 20px; width: 250px;" pw_input_target="#patreon_wordpress_post_import_category_status" target="">Save</button><div id="patreon_wordpress_post_import_category_status" style="color: #<?php echo $post_sync_category_status_color ?>;"></div></div><div class="patreon_post_sync_choice"><div class="patreon_post_sync_choice_title">Author for imported posts</div>'.PATREON_POST_SYNC_6.'<div style="display:block;margin-top:10px;"><select id="patreon-post-author-for-synced-posts" patreon_wordpress_nonce_save_post_sync_options="'.$patreon_wordpress_nonce_save_post_sync_options.'" name="patreon-post-author-for-synced-posts" pw_input_target="#patreon-post-author-for-synced-posts-info" style="font-size:20px; display:inline-block;">'.$user_select.'</select><div id="patreon-post-author-for-synced-posts-info" style="clear:both;display:block;width:auto;"></div></div></div><div class="patreon_post_sync_choice"><div class="patreon_post_sync_choice_title">Update local posts from the ones at Patreon</div>'.PATREON_POST_SYNC_2.'<div style="display:block;margin-top:10px;width: 200px;"><select id="patreon-update-posts" patreon_wordpress_nonce_save_post_sync_options="'.$patreon_wordpress_nonce_save_post_sync_options.'" name="patreon-update-posts" pw_input_target="#patreon-update-posts-info" style="font-size:20px; display:inline-block;"><option value="">Select</option><option value="yes" '.$update_posts_selected.'>Yes</option><option value="no"'.$update_posts_unselected.'>No</option></select><div id="patreon-update-posts-info" style=:clear:both;display:block;width:auto;""></div></div></div><div class="patreon_post_sync_choice"><div class="patreon_post_sync_choice_title">Delete local post when Patreon post is deleted</div>'.PATREON_POST_SYNC_3.'<div style="display:block;margin-top:10px;width: 200px;"><select name="patreon-remove-deleted-posts" id="patreon-remove-deleted-posts" patreon_wordpress_nonce_save_post_sync_options="'.$patreon_wordpress_nonce_save_post_sync_options.'" pw_input_target="#patreon-remove-deleted-posts-info" style="font-size:20px;"><option value="">Select</option><option value="yes" '.$delete_posts_selected.'>Yes</option><option value="no" '.$delete_posts_unselected.'>No</option></select><div id="patreon-remove-deleted-posts-info" style="clear:both;display:block;width:auto;"></div></div></div></div><form style="display:inline-block;margin-right:10px;" method="post" action="'.admin_url('admin.php?page=patreon_wordpress_setup_wizard&setup_stage=post_sync_2').'"><p class="submit" style="margin-top: 10px;"><input type="submit" name="submit" id="submit" class="button button-large button-primary" value="Done!"></p><input type="hidden" name="patreon_wordpress_nonce_save_post_sync_options" value="'.$patreon_wordpress_nonce_save_post_sync_options.'" /></form></div>';
+            echo '<div id="patreon_setup_content"><h1 style="margin-top: 0px;">How should posts be synced?</h1><div id="patreon_setup_message">'.$api_version_warning.$invalid_client_credential_error.$setup_message.'<div class="patreon_post_sync_choice"><div class="patreon_post_sync_choice_title">Sync posts to this category</div>'.PATREON_POST_SYNC_5.'<div style="display:block;margin-top:10px;width: 200px;"><select name="patreon_sync_post_type" id="patreon_sync_post_type" style="display: inline-block; margin-right: 5px; margin-bottom: 10px; font-size: 20px; width: 250px;">'.$post_type_select.'</select><select  name="patreon_sync_post_category" id="patreon_sync_post_category" style="display: inline-block; margin-right: 5px; margin-bottom: 10px; font-size: 20px; width: 250px;">'.$taxonomy_select.'</select><select name="patreon_sync_post_term" id="patreon_sync_post_term" style="display: inline-block; margin-right: 5px; margin-bottom: 10px; font-size: 20px; width: 250px;">'.$term_select.'</select><button id="patreon_wordpress_save_post_sync_category"  patreon_wordpress_nonce_save_post_sync_options="'.$patreon_wordpress_nonce_save_post_sync_options.'" class="button button-primary button-large" style="display: inline-block; margin-right: 5px; margin-bottom: 10px; font-size: 20px; width: 250px;" pw_input_target="#patreon_wordpress_post_import_category_status" target="">Save</button><div id="patreon_wordpress_post_import_category_status" style="color: #<?php echo $post_sync_category_status_color ?>;"></div></div><div class="patreon_post_sync_choice"><div class="patreon_post_sync_choice_title">Author for imported posts</div>'.PATREON_POST_SYNC_6.'<div style="display:block;margin-top:10px;"><select id="patreon-post-author-for-synced-posts" patreon_wordpress_nonce_save_post_sync_options="'.$patreon_wordpress_nonce_save_post_sync_options.'" name="patreon-post-author-for-synced-posts" pw_input_target="#patreon-post-author-for-synced-posts-info" style="font-size:20px; display:inline-block;">'.$user_select.'</select><div id="patreon-post-author-for-synced-posts-info" style="clear:both;display:block;width:auto;"></div></div></div><div class="patreon_post_sync_choice"><div class="patreon_post_sync_choice_title">Update local posts from the ones at Patreon</div>'.PATREON_POST_SYNC_2.'<div style="display:block;margin-top:10px;width: 200px;"><select id="patreon-update-posts" patreon_wordpress_nonce_save_post_sync_options="'.$patreon_wordpress_nonce_save_post_sync_options.'" name="patreon-update-posts" pw_input_target="#patreon-update-posts-info" style="font-size:20px; display:inline-block;"><option value="">Select</option><option value="yes" '.$update_posts_selected.'>Yes</option><option value="no"'.$update_posts_unselected.'>No</option></select><div id="patreon-update-posts-info" style=:clear:both;display:block;width:auto;""></div></div></div><div class="patreon_post_sync_choice"><div class="patreon_post_sync_choice_title">Delete local post when Patreon post is deleted</div>'.PATREON_POST_SYNC_3.'<div style="display:block;margin-top:10px;width: 200px;"><select name="patreon-remove-deleted-posts" id="patreon-remove-deleted-posts" patreon_wordpress_nonce_save_post_sync_options="'.$patreon_wordpress_nonce_save_post_sync_options.'" pw_input_target="#patreon-remove-deleted-posts-info" style="font-size:20px;"><option value="">Select</option><option value="yes" '.$delete_posts_selected.'>Yes</option><option value="no" '.$delete_posts_unselected.'>No</option></select><div id="patreon-remove-deleted-posts-info" style="clear:both;display:block;width:auto;"></div></div></div></div><form style="display:inline-block;margin-right:10px;" method="post" action="'.admin_url('admin.php?page=patreon_wordpress_setup_wizard&setup_stage=post_sync_2').'"><p class="submit" style="margin-top: 10px;"><input type="submit" name="submit" id="submit" class="button button-large button-primary" value="Done!"></p><input type="hidden" name="patreon_wordpress_nonce_save_post_sync_options" value="'.$patreon_wordpress_nonce_save_post_sync_options.'" /></form></div>';
 
             echo '</div>';
         }
@@ -2358,17 +2368,21 @@ class Patreon_Wordpress
 
     public static function update_creator_tiers_from_api()
     {
-        // Does an update of creator tiers from the api
-
-        if (get_option('patreon-client-id', false)
-                && get_option('patreon-client-secret', false)
-                && get_option('patreon-creators-access-token', false)
-        ) {
-            // Credentials are in. Go.
-
-            $api_client = new Patreon_API(get_option('patreon-creators-access-token', false));
-            $creator_info = $api_client->fetch_tiers();
+        if (PatreonApiUtil::is_app_creds_invalid()) {
+            // Don't attempt tier information refresh if the plugin client
+            // credentials have been marked as broken
+            return false;
         }
+
+        $creator_access_token = PatreonApiUtil::get_creator_access_token();
+
+        if (!$creator_access_token) {
+            // Creator access token not available, don't proceed
+            return false;
+        }
+
+        $api_client = new Patreon_API($creator_access_token);
+        $creator_info = $api_client->fetch_tiers();
 
         if (isset($creator_info) and 'throttled_locally' == $creator_info) {
             // Return by doing nothing until the api can be contacted again
@@ -2997,8 +3011,16 @@ class Patreon_Wordpress
             return;
         }
 
-        if (get_option('patreon-creator-access-token-401', false)) {
-            return;
+        if (PatreonApiUtil::is_app_creds_invalid()) {
+            // Don't attempt to manage post sync webhooks if the plugin client
+            // credentials have been marked as broken
+            return false;
+        }
+
+        $creator_access_token = PatreonApiUtil::get_creator_access_token();
+        if (!$creator_access_token) {
+            // Creator access token not available, don't proceed
+            return false;
         }
 
         $api_version = get_option('patreon-installation-api-version', '1');
@@ -3025,8 +3047,8 @@ class Patreon_Wordpress
                     return;
                 }
 
-                $creator_access_token = get_option('patreon-creators-access-token', false);
-
+                // Refetch client token
+                $creator_access_token = PatreonApiUtil::get_creator_access_token();
                 $api_client = new Patreon_API($creator_access_token);
 
                 $webhook_delete = $api_client->delete_post_webhook($existing_hook['data']['id']);
@@ -3047,8 +3069,8 @@ class Patreon_Wordpress
             return;
         }
 
-        $creator_access_token = get_option('patreon-creators-access-token', false);
-
+        // Refetch client token
+        $creator_access_token = PatreonApiUtil::get_creator_access_token();
         $api_client = new Patreon_API($creator_access_token);
 
         $webhook_added = $api_client->add_post_webhook();
@@ -3093,19 +3115,6 @@ class Patreon_Wordpress
 
         if (get_option('patreon-post-import-in-progress', false)) {
             self::$patreon_content_sync->import_posts_from_patreon();
-        }
-    }
-
-    public function creator_has_tiers()
-    {
-        // Checks if creator has tiers locally. This is a way to identify lite plans and avoid hammering the api with tier requests
-
-        $creator_tiers = get_option('patreon-creator-tiers', false);
-
-        if (!$creator_tiers or '' == $creator_tiers or !is_array($creator_tiers['included'][1])) {
-            return false;
-        } else {
-            return true;
         }
     }
 }
