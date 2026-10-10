@@ -126,7 +126,7 @@ class Patreon_Content_Sync
 
         global $wpdb;
 
-        $matching_posts = $wpdb->get_results('SELECT post_id, meta_value FROM '.$wpdb->postmeta." WHERE meta_key = 'patreon-post-id' AND meta_value = '".$patreon_post['data']['id']."' ", ARRAY_A);
+        $matching_posts = $wpdb->get_results($wpdb->prepare('SELECT post_id, meta_value FROM '.$wpdb->postmeta." WHERE meta_key = 'patreon-post-id' AND meta_value = %s", $patreon_post['data']['id']), ARRAY_A);
 
         if (count($matching_posts) > 0) {
             // Matching post found - just get the first one
@@ -137,11 +137,20 @@ class Patreon_Content_Sync
 
         if (0 == count($matching_posts)) {
             // no matching posts. Try checking from the title.
-            $matching_post = get_page_by_title($patreon_post['data']['attributes']['title'], OBJECT, 'post');
+            $matching_posts_by_title = get_posts([
+                'post_type' => 'post',
+                'title' => $patreon_post['data']['attributes']['title'],
+                'post_status' => 'all',
+                'numberposts' => 1,
+                'orderby' => 'post_date ID',
+                'order' => 'ASC',
+                'update_post_term_cache' => false,
+                'update_post_meta_cache' => false,
+            ]);
 
-            if (isset($matching_post)) {
+            if (!empty($matching_posts_by_title)) {
                 // A post matching from title was found.
-                $matching_post_id = $matching_post->ID;
+                $matching_post_id = $matching_posts_by_title[0]->ID;
             }
         }
 
@@ -187,7 +196,7 @@ class Patreon_Content_Sync
             }
         }
 
-        $post_date = date('Y-m-d H:i:s', time());
+        $post_date = gmdate('Y-m-d H:i:s', time());
 
         if ('yes' == get_option('patreon-override-synced-post-publish-date', 'no')) {
             $utc_timezone = new DateTimeZone('UTC');
@@ -258,7 +267,7 @@ class Patreon_Content_Sync
 
         if ($images) {
             foreach ($images as $key => $value) {
-                $inserted_attachment = $wpdb->get_results('SELECT ID FROM '.$wpdb->posts." WHERE post_name = '".$images[$key]['name']."'");
+                $inserted_attachment = $wpdb->get_results($wpdb->prepare('SELECT ID FROM '.$wpdb->posts.' WHERE post_name = %s', $images[$key]['name']));
 
                 $inserted_attachment_id = $inserted_attachment[0]->ID;
 
@@ -365,7 +374,7 @@ class Patreon_Content_Sync
 
         if ($images) {
             foreach ($images as $key => $value) {
-                $inserted_attachment = $wpdb->get_results('SELECT ID FROM '.$wpdb->posts." WHERE post_name = '".$images[$key]['name']."'");
+                $inserted_attachment = $wpdb->get_results($wpdb->prepare('SELECT ID FROM '.$wpdb->posts.' WHERE post_name = %s', $images[$key]['name']));
 
                 $inserted_attachment_id = $inserted_attachment[0]->ID;
 
@@ -499,7 +508,7 @@ class Patreon_Content_Sync
                     if (isset($patreon_post['data']['attributes']['embed_data']['url']) and '' != $patreon_post['data']['attributes']['embed_data']['url']) {
                         // Get the image if not present in local library:
 
-                        $path = parse_url($patreon_post['data']['attributes']['embed_data']['html'], PHP_URL_PATH);
+                        $path = wp_parse_url($patreon_post['data']['attributes']['embed_data']['html'], PHP_URL_PATH);
 
                         $image_hash = $Patreon_Wordpress->get_remote_image_hash($patreon_post['data']['attributes']['embed_data']['html']);
 
@@ -574,7 +583,7 @@ class Patreon_Content_Sync
         // Gets a WP post by a matching Patreon post id from its Patreon post id meta
         global $wpdb;
 
-        $post = $wpdb->get_results("SELECT * FROM $wpdb->postmeta WHERE meta_key = 'patreon-post-id' AND  meta_value = '".$patreon_post_id."' LIMIT 1", ARRAY_A);
+        $post = $wpdb->get_results($wpdb->prepare("SELECT * FROM $wpdb->postmeta WHERE meta_key = 'patreon-post-id' AND  meta_value = %s LIMIT 1", $patreon_post_id), ARRAY_A);
 
         if (isset($post[0]['post_id'])) {
             return $post[0]['post_id'];

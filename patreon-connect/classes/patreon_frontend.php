@@ -32,6 +32,7 @@ class Patreon_Frontend
         self::$messages_map = [
             'patreon_cant_login_strict_oauth' => PATREON_CANT_LOGIN_STRICT_OAUTH,
             'login_with_wordpress' => PATREON_LOGIN_WITH_WORDPRESS_NOW,
+            'patreon_invalid_oauth_state' => PATREON_INVALID_OAUTH_STATE,
             'patreon_cant_login_api_error' => PATREON_CANT_LOGIN_DUE_TO_API_ERROR,
             'patreon_cant_login_api_error_credentials' => PATREON_CANT_LOGIN_DUE_TO_API_ERROR_CHECK_CREDENTIALS,
             'patreon_no_locking_level_set_for_this_post' => PATREON_NO_LOCKING_LEVEL_SET_FOR_THIS_POST,
@@ -88,8 +89,8 @@ class Patreon_Frontend
         echo '<style>';
         echo "@font-face {
             font-family: 'Libre Franklin Extra Bold';
-            src: url('".PATREON_PLUGIN_ASSETS."/fonts/librefranklin-extrabold-webfont.woff2') format('woff2'),
-                 url('".PATREON_PLUGIN_ASSETS."/fonts/librefranklin-extrabold-webfont.woff') format('woff');
+            src: url('".esc_url(PATREON_PLUGIN_ASSETS.'/fonts/librefranklin-extrabold-webfont.woff2')."') format('woff2'),
+                 url('".esc_url(PATREON_PLUGIN_ASSETS.'/fonts/librefranklin-extrabold-webfont.woff')."') format('woff');
             font-weight: bold;
             }";
         echo '</style>';
@@ -420,12 +421,12 @@ class Patreon_Frontend
             $label = PATREON_TEXT_OVER_BUTTON_15;
         }
 
-        $label = apply_filters('ptrn/label_text_over_universal_button_raw', $label, $args['reason'], $user_logged_into_patreon, $is_patron, $args, $post, $creator_full_name, $patreon_level, $post_total_patronage_level, $creator_url, strip_tags($tier_title), self::patreonMakeCacheableFlowLink($post));
+        $label = apply_filters('ptrn/label_text_over_universal_button_raw', $label, $args['reason'], $user_logged_into_patreon, $is_patron, $args, $post, $creator_full_name, $patreon_level, $post_total_patronage_level, $creator_url, wp_strip_all_tags($tier_title), self::patreonMakeCacheableFlowLink($post));
 
         $label = str_replace('%%creator_link%%', $creator_url, $label);
         $label = str_replace('%%creator%%', $creator_full_name, $label);
         $label = str_replace('%%pledgelevel%%', $patreon_level, $label);
-        $label = str_replace('%%tier_level%%', strip_tags($tier_title), $label);
+        $label = str_replace('%%tier_level%%', wp_strip_all_tags($tier_title), $label);
         $label = str_replace('%%flow_link%%', self::patreonMakeCacheableFlowLink($post), $label);
         $label = str_replace('%%total_pledge%%', $post_total_patronage_level, $label);
 
@@ -515,7 +516,7 @@ class Patreon_Frontend
 
     public static function showPatreonMessages()
     {
-        echo self::processPatreonMessages();
+        echo wp_kses_post(self::processPatreonMessages());
     }
 
     public static function processPatreonMessages()
@@ -523,15 +524,17 @@ class Patreon_Frontend
         $patreon_error = '';
         if (isset($_REQUEST['patreon_error'])) {
             // If any specific error message is sent from Patreon, prepare it
-            $patreon_error = ' - Patreon returned: '.preg_replace('/[^A-Za-z0-9 ]/', '', $_REQUEST['patreon_error']);
+            $patreon_error = ' - Patreon returned: '.preg_replace('/[^A-Za-z0-9 ]/', '', sanitize_text_field(wp_unslash($_REQUEST['patreon_error'])));
         }
 
         if (isset($_REQUEST['patreon_message'])) {
-            return '<p class="patreon_message">'.apply_filters('ptrn/error_message', self::$messages_map[$_REQUEST['patreon_message']].$patreon_error).'</p>';
+            $patreon_message = sanitize_text_field(wp_unslash($_REQUEST['patreon_message']));
+
+            return '<p class="patreon_message">'.apply_filters('ptrn/error_message', (self::$messages_map[$patreon_message] ?? '').$patreon_error).'</p>';
         }
 
         if (isset($GLOBALS['patreon_notice'])) {
-            return '<p class="patreon_message">'.apply_filters('ptrn/patreon_notice', $GLOBALS['patreon_notice']).'</p>';
+            return '<p class="patreon_message">'.apply_filters('ptrn/patreon_notice', esc_html($GLOBALS['patreon_notice'])).'</p>';
         }
 
         return '';
@@ -714,7 +717,7 @@ class Patreon_Frontend
 
         $pledge_level = apply_filters('ptrn/patron_link_pledge_level', $pledge_level, $send_post_id, $args);
 
-        $href = 'https://'.PATREON_HOST.'/oauth2/become-patron?response_type=code&min_cents='.$pledge_level.'&client_id='.$client_id.$v2_params.'&redirect_uri='.$redirect_uri.'&state='.urlencode(base64_encode(json_encode($state)));
+        $href = 'https://'.PATREON_HOST.'/oauth2/become-patron?response_type=code&min_cents='.$pledge_level.'&client_id='.$client_id.$v2_params.'&redirect_uri='.$redirect_uri.'&state='.PatreonOauthStateUtil::encode_state($state);
 
         // 3rd party dev goodie! Apply custom filters so they can manipulate the url:
 
@@ -825,7 +828,7 @@ class Patreon_Frontend
         $href = 'https://'.PATREON_HOST.'/oauth2/authorize?response_type=code&client_id='
         .$client_id.$v2_params
         .'&redirect_uri='.urlencode($redirect_uri)
-        .'&state='.urlencode(base64_encode(json_encode($state)));
+        .'&state='.PatreonOauthStateUtil::encode_state($state);
 
         $href = apply_filters('ptrn/login_link', $href);
         $filterable_utm_params = 'utm_term=&utm_content=login_button';
@@ -1251,7 +1254,7 @@ class Patreon_Frontend
         $creator_url .= $append_with.$utm_params;
 
         $label = str_replace('%%creator_link%%', $creator_url, $label);
-        $label = str_replace('%%tier_level%%', strip_tags($tier_title), $label);
+        $label = str_replace('%%tier_level%%', wp_strip_all_tags($tier_title), $label);
         $label = str_replace('%%creator%%', $creator_full_name, $label);
         $label = str_replace('%%pledgelevel%%', $patreon_level, $label);
         $label = str_replace('%%flow_link%%', self::patreonMakeCacheableFlowLink(), $label);
@@ -1276,14 +1279,14 @@ class Patreon_Frontend
 
         // Check if the login button hide option is on
         if (!get_option('patreon-hide-login-button', false)) {
-            echo '<div style="display:inline-block;width : 100%; text-align: center;">'.self::showPatreonLoginButton().'</div>';
+            echo '<div style="display:inline-block;width : 100%; text-align: center;">'.self::showPatreonLoginButton().'</div>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- HTML built and escaped by showPatreonLoginButton()
         }
     }
 
     public static function showPatreonLoginButton($args = [])
     {
         // Set default login image
-        $log_in_img = PATREON_PLUGIN_ASSETS.'/img/patreon login@1x.png';
+        $log_in_img = PATREON_PLUGIN_ASSETS.'/img/patreon-login-1x.png';
 
         $user = wp_get_current_user();
         $user_patreon_id = '';
@@ -1294,7 +1297,7 @@ class Patreon_Frontend
 
         if (is_user_logged_in() and '' == $user_patreon_id) {
             // Logged in user without a connected Patreon account. Show connect button
-            $log_in_img = PATREON_PLUGIN_ASSETS.'/img/patreon connect@1x.png';
+            $log_in_img = PATREON_PLUGIN_ASSETS.'/img/patreon-connect-1x.png';
         }
 
         // Override image if argument given
@@ -1319,7 +1322,7 @@ class Patreon_Frontend
         if (isset($_REQUEST['patreon-msg']) && 'login_with_patreon' == $_REQUEST['patreon-msg']) {
             $button .= '<p class="patreon-msg">You can now login with your WordPress username/password.</p>';
         } else {
-            $button .= apply_filters('ptrn/login_button', '<a href="'.self::patreonMakeCacheableLoginLink().'" class="ptrn-button"><img src="'.$log_in_img.'" width="272" height="42" alt="Login with Patreon" /></a>');
+            $button .= apply_filters('ptrn/login_button', '<a href="'.esc_url(self::patreonMakeCacheableLoginLink()).'" class="ptrn-button"><img src="'.esc_url($log_in_img).'" width="272" height="42" alt="Login with Patreon" /></a>');
         }
 
         return $button;
@@ -1386,7 +1389,7 @@ class Patreon_Frontend
         $creator_interface_name = Patreon_Wordpress::get_page_name();
 
         if (!$creator_interface_name or '' == $creator_interface_name) {
-            $creator_interface_name = get_option('patreon-creator-first-name', false);
+            $creator_interface_name = get_option('patreon-campaign-name', false);
         }
 
         if (!$creator_interface_name or '' == $creator_interface_name) {
@@ -1496,7 +1499,7 @@ class Patreon_Frontend
         }
 
         // User logged in and has Patreon connected. Display logout link.
-        return str_replace('%%click_here%%', '<a href="'.wp_logout_url(get_permalink()).'">'.PATREON_CLICK_HERE.'</a>', PATREON_LOGIN_WIDGET_LOGOUT);
+        return str_replace('%%click_here%%', '<a href="'.esc_url(wp_logout_url(get_permalink())).'">'.PATREON_CLICK_HERE.'</a>', PATREON_LOGIN_WIDGET_LOGOUT);
     }
 
     public static function replace_in_currency_sign($label)

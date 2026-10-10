@@ -414,16 +414,36 @@ class Patreon_Routing
         if (array_key_exists('code', $wp->query_vars)) {
             // Get state vars if they exist
 
+            $state = [];
+
             if ('' != $wp->query_vars['state']) {
                 $state = json_decode(base64_decode(urldecode($wp->query_vars['state'])), true);
             }
 
+            if (!is_array($state)) {
+                $state = [];
+            }
+
             $redirect = false;
 
-            // Check if final_redirect exists in state vars - if so, override redirect:
+            // Check if final_redirect exists in state vars - if so, override redirect. State comes from the request, so only allow redirects to this site:
 
-            if (isset($state['final_redirect_uri']) and '' != $state['final_redirect_uri']) {
-                $redirect = $state['final_redirect_uri'];
+            if (isset($state['final_redirect_uri']) and is_string($state['final_redirect_uri']) and '' != $state['final_redirect_uri']) {
+                $redirect = wp_validate_redirect($state['final_redirect_uri'], home_url());
+            }
+
+            // Abort if the flow was not started from this user's session, so a crafted link cannot connect the site or the user's account to someone else's Patreon account
+
+            if (!PatreonOauthStateUtil::is_state_valid($state)) {
+                if (isset($state['patreon_action']) and 'reconnect_site' == $state['patreon_action']) {
+                    wp_safe_redirect(admin_url('admin.php?page=patreon_wordpress_setup_wizard&setup_stage=reconnect_0&patreon_message=patreon_invalid_oauth_state'));
+                } elseif (isset($state['patreon_action'])) {
+                    wp_safe_redirect(admin_url('admin.php?page=patreon_wordpress_setup_wizard&setup_stage=0&patreon_message=patreon_invalid_oauth_state'));
+                } else {
+                    wp_safe_redirect(add_query_arg('patreon_message', 'patreon_invalid_oauth_state', $redirect ? $redirect : home_url()));
+                }
+
+                exit;
             }
 
             if (isset($state['patreon_action'])) {

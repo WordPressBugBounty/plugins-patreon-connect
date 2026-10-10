@@ -149,14 +149,10 @@ class Patreon_Login
 
         global $wpdb;
 
-        $prepared_sql = $wpdb->prepare(
+        $patreon_linked_accounts = $wpdb->get_results($wpdb->prepare(
             'SELECT * FROM '.$wpdb->usermeta." WHERE meta_key = 'patreon_user_id' AND meta_value = %s",
             [$patreon_user_id]
-        );
-
-        // Now get the result :
-
-        $patreon_linked_accounts = $wpdb->get_results($prepared_sql, ARRAY_A);
+        ), ARRAY_A);
 
         if (count($patreon_linked_accounts) > 0) {
             // //////////////////////////////////////////////
@@ -444,7 +440,7 @@ class Patreon_Login
         // Delete existing Patreon avatar
 
         if (file_exists($user_patreon_avatar_path)) {
-            unlink($user_patreon_avatar_path);
+            wp_delete_file($user_patreon_avatar_path);
         }
 
         // Upload new one
@@ -526,7 +522,7 @@ class Patreon_Login
                         <tr>
                             <th><label for="patreon_user">Connect your site account to your Patreon account</label></th>
                             <td>
-                                <button id="patreon_wordpress_connect_patreon_account" class="button button-primary button-large" patreon_login_url="<?php echo $login_flow_url; ?>" target="">Connect to Patreon</button><br />
+                                <button id="patreon_wordpress_connect_patreon_account" class="button button-primary button-large" patreon_login_url="<?php echo esc_url($login_flow_url); ?>" target="">Connect to Patreon</button><br />
                             </td>
                         </tr>
                     </table>

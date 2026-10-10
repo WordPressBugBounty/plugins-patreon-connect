@@ -1,3 +1,12 @@
+= 1.11.0 =
+
+* Security fixes for admin actions, settings, and database queries.
+* WordPress compatibility fixes. Requires WordPress 4.9.6 or later. Tested up to WordPress 7.1.
+
+= 1.10.0 =
+
+* Security fixes for Patreon connections and admin settings.
+
 = 1.9.17 =
 
 * Fixed: HTTP 429 responses no longer incorrectly mark credentials as invalid — only HTTP 401 triggers this
