@@ -4,7 +4,7 @@
 Plugin Name: Patreon WordPress
 Plugin URI: https://www.patreon.com/apps/wordpress
 Description: Patron-only content, directly on your website.
-Version: 1.11.0
+Version: 1.12.0
 Author: Patreon <platform@patreon.com>
 Author URI: https://patreon.com
 License: GPLv2 or later
@@ -72,7 +72,7 @@ define('PATREON_ADMIN_BYPASSES_FILTER_MESSAGE', 'This content is for Patrons onl
 define('PATREON_CREATOR_BYPASSES_FILTER_MESSAGE', 'This content is for Patrons only, it\'s not locked for you because you are logged in as the Patreon creator');
 define('PATREON_NO_LOCKING_LEVEL_SET_FOR_THIS_POST', 'Post is already public. If you would like to lock this post, please set a pledge level for it');
 define('PATREON_NO_POST_ID_TO_UNLOCK_POST', 'Sorry - could not get the post id for this locked post');
-define('PATREON_WORDPRESS_VERSION', '1.11.0');
+define('PATREON_WORDPRESS_VERSION', '1.12.0');
 define('PATREON_WORDPRESS_BETA_STRING', '');
 define('PATREON_WORDPRESS_PLUGIN_SLUG', plugin_basename(__FILE__));
 define('PATREON_PRIVACY_POLICY_ADDENDUM', '<h2>Patreon features in this website</h2>In order to enable you to use this website with Patreon services, we save certain functionally important Patreon information about you in this website if you log in with Patreon.
@@ -150,6 +150,7 @@ define('PATREON_WARNING_POST_SYNC_SET_WITHOUT_API_V2', 'Important: Post syncing 
 define('PATREON_CHECK_API_CONNECTION_COOLDOWN_S', 10 * 60);
 define('PATREON_CREATOR_TOKEN_REFRESH_ATTEMPT_COOLDOWN_S', 60);
 define('PATREON_CHECK_CREATOR_TIERS_COOLDOWN_S', 5 * 60);
+define('PATREON_CHECK_CAMPAIGN_NAME_COOLDOWN_S', 12 * 60 * 60);
 
 require 'classes/patreon_wordpress.php';
 
