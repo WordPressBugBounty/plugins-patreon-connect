@@ -6,6 +6,16 @@ if (!defined('ABSPATH')) {
 
 class Patreon_Protect
 {
+    public const IMAGE_LEVEL_META_KEY = 'patreon-level';
+
+    // Images locked before 'patreon-level' became the key for images are stored under 'patreon_level'. Both keys are read, so no migration is needed. In the future this data could be migrated to 'patreon-level' and the fallback removed.
+    public const LEGACY_IMAGE_LEVEL_META_KEY = 'patreon_level';
+
+    // Images can carry the current key or the legacy one, and a change to either can change an image's level, so both clear its cached placeholders.
+    private const LEVEL_META_KEYS = [self::IMAGE_LEVEL_META_KEY, self::LEGACY_IMAGE_LEVEL_META_KEY];
+
+    private const EMPTY_LEVEL_HELP = 'Leave empty to use the post\'s level or enter 0 to make it public.';
+
     public function __construct()
     {
         // If image feature was not turned on before, or turned off, we skip activating image protection functions:
@@ -19,6 +29,30 @@ class Patreon_Protect
         }
         // Only image-reader is left always on for backward compatibility in case a user already has images linked directly - it can be put into the conditional block above in later versions
         add_action('plugins_loaded', [$this, 'servePatronOnlyImage']);
+
+        foreach (['added_post_meta', 'updated_post_meta', 'deleted_post_meta'] as $meta_hook) {
+            add_action($meta_hook, [self::class, 'clearCachedPlaceholdersOnLevelChange'], 10, 3);
+        }
+        add_action('delete_attachment', [self::class, 'deleteCachedAttachmentPlaceholders']);
+    }
+
+    public static function clearCachedPlaceholdersOnLevelChange($meta_id, $object_id, $meta_key)
+    {
+        if (in_array($meta_key, self::LEVEL_META_KEYS, true) && 'attachment' === get_post_type($object_id)) {
+            self::deleteCachedAttachmentPlaceholders($object_id);
+        }
+    }
+
+    private static function sendLockedImageHeaders($mime_type)
+    {
+        header('Content-Type: '.$mime_type);
+
+        // Always send no cache headers since this is a gated image placeholder
+
+        header('Expires: '.gmdate('D, d M Y H:i:s').' GMT');
+        header('Last-Modified: '.gmdate('D, d M Y H:i:s').' GMT');
+        header('Cache-Control: no-store, no-cache, must-revalidate');
+        header('Cache-Control: post-check=0, pre-check=0', false);
     }
 
     public function GalleryItemSavePatreonEdit($form_fields, $post)
@@ -26,8 +60,8 @@ class Patreon_Protect
         $form_fields['patreon_level'] = [
             'label' => 'Minimum Patreon pledge amount​ &#36;',
             'input' => 'text',
-            'value' => get_post_meta($post->ID, 'patreon_level', true),
-            'helps' => '​​Anyone who isn\'t your patron pledging at or above the minimum will not be able to see this image.',
+            'value' => self::getOwnImageLevel($post->ID) ?? '',
+            'helps' => 'Only patrons pledging at least this amount can see this image.<br>'.self::EMPTY_LEVEL_HELP,
         ];
 
         return $form_fields;
@@ -36,11 +70,7 @@ class Patreon_Protect
     public function GalleryItemSavePatreonLevel($post, $attachment)
     {
         if (isset($attachment['patreon_level'])) {
-            if ('' == $attachment['patreon_level']) {
-                $attachment['patreon_level'] = 0;
-            }
-
-            update_post_meta($post['ID'], 'patreon_level', $attachment['patreon_level']);
+            self::saveImageLevel($post['ID'], $attachment['patreon_level']);
         }
 
         // Flush this item's cached file:
@@ -213,12 +243,7 @@ class Patreon_Protect
 
         // Check if the image is protected:
 
-        $patreon_level = get_post_meta($attachment_id, 'patreon_level', true);
-
-        // If no specific level is found for this image, it is not set. Then set the level to 0.
-        if (!$patreon_level) {
-            $patreon_level = 0;
-        }
+        $patreon_level = self::getImageLevel($attachment_id);
 
         // If no level was set for image or it was 0, just serve the image.
         if (0 == $patreon_level) {
@@ -251,7 +276,9 @@ class Patreon_Protect
 
         $attachment_metadata = wp_get_attachment_metadata($attachment_id, true);
 
-        foreach ($attachment_metadata['sizes'] as $key => $value) {
+        $sizes = is_array($attachment_metadata) ? ($attachment_metadata['sizes'] ?? []) : [];
+
+        foreach ($sizes as $key => $value) {
             $cached_filename = $attachment_id.'-'.$key;
             if (file_exists(PATREON_PLUGIN_LOCKED_IMAGE_CACHE_DIR.'/'.$cached_filename)) {
                 wp_delete_file(PATREON_PLUGIN_LOCKED_IMAGE_CACHE_DIR.'/'.$cached_filename);
@@ -307,10 +334,11 @@ class Patreon_Protect
 
         // first, check if cached image exists:
 
-        if (file_exists(PATREON_PLUGIN_LOCKED_IMAGE_CACHE_DIR.'/'.$cached_filename) and isset($go)) {
+        if (file_exists(PATREON_PLUGIN_LOCKED_IMAGE_CACHE_DIR.'/'.$cached_filename)) {
             // Exists - serve the cached image:
 
-            header('Content-Type: '.$mime_type);
+            // TODO: Serve locked and unlocked images from separate URLs, so the cached placeholder can be sent with cache headers and cached at the edge. Today both share one URL, so every response has to be no-store.
+            self::sendLockedImageHeaders('image/png');
             // Readfile to avoid higher memory usage. Can be modified to echo file_get_contents for small files in future
             echo file_get_contents(PATREON_PLUGIN_LOCKED_IMAGE_CACHE_DIR.'/'.$cached_filename); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Binary image data
             exit;
@@ -546,14 +574,7 @@ class Patreon_Protect
             imagettftext($image, $button_font_size, 0, $x_coord, $y_coord, $white, $font, $unlock_button_text);
         }
 
-        header('Content-Type: '.$force_mime_type);
-
-        // Always send no cache headers since this is a gated image placeholder
-
-        header('Expires: '.gmdate('D, d M Y H:i:s').' GMT');
-        header('Last-Modified: '.gmdate('D, d M Y H:i:s').' GMT');
-        header('Cache-Control: no-store, no-cache, must-revalidate');
-        header('Cache-Control: post-check=0, pre-check=0', false);
+        self::sendLockedImageHeaders($force_mime_type);
 
         if ('image/png' == $force_mime_type) {
             imagepng($image, PATREON_PLUGIN_LOCKED_IMAGE_CACHE_DIR.'/'.$cached_filename);
@@ -650,7 +671,7 @@ RewriteRule ^".$upload_dir.'/(.*)$ index.php?patreon_action=serve_patron_only_im
 
         $update_status = '';
 
-        if (update_post_meta($attachment_id, 'patreon_level', $patreon_level)) {
+        if (self::saveImageLevel($attachment_id, $patreon_level)) {
             $update_status = 'updated';
         }
 
@@ -715,7 +736,7 @@ RewriteRule ^".$upload_dir.'/(.*)$ index.php?patreon_action=serve_patron_only_im
             $message = 'Image locking is not enabled in <a href="'.admin_url('admin.php?page=patreon-plugin').'" target="_blank">settings</a>. Locking will not work';
         }
 
-        $patreon_level = get_post_meta($attachment_id, 'patreon_level', true);
+        $patreon_level = self::getOwnImageLevel($attachment_id) ?? '';
 
         $args = [
             'attachment_id' => $attachment_id,
@@ -741,7 +762,7 @@ RewriteRule ^".$upload_dir.'/(.*)$ index.php?patreon_action=serve_patron_only_im
         $interface .= '<span class="patreon_image_locking_interface_input_prefix">$<input id="patreon_attachment_patreon_level" type="text" name="patreon_attachment_patreon_level" value="'.esc_attr($args['patreon_level']).'" / ></span>';
         $interface .= '</div>';
         $interface .= '<div class="patreon_image_locking_interface_info">';
-        $interface .= 'Minimum Patreon pledge amount required to see this image';
+        $interface .= 'Minimum Patreon pledge amount required to see this image.<br>'.self::EMPTY_LEVEL_HELP;
         $interface .= '</div>';
         $interface .= '<input type="hidden" name="patreon_attachment_id" value="'.esc_attr($args['attachment_id']).'" />';
         $interface .= '<div class="patreon-image-locking-update-button"><input type="submit" class="button button-primary button-large" value=" Update " /></div>';
@@ -864,6 +885,75 @@ RewriteRule ^".$upload_dir.'/(.*)$ index.php?patreon_action=serve_patron_only_im
 
     }
 
+    public static function getOwnImageLevel($attachment_id)
+    {
+        $levels = [];
+
+        foreach ([self::IMAGE_LEVEL_META_KEY, self::LEGACY_IMAGE_LEVEL_META_KEY] as $meta_key) {
+            if (metadata_exists('post', $attachment_id, $meta_key)) {
+                $levels[] = (float) get_post_meta($attachment_id, $meta_key, true);
+            }
+        }
+
+        return $levels ? max($levels) : null;
+    }
+
+    public static function getImageLevel($attachment_id)
+    {
+        // The minimum pledge amount needed to see an image. A level set on the image itself always wins, including 0 which keeps the image public. An image with no level of its own follows the posts that use it.
+
+        $own_level = self::getOwnImageLevel($attachment_id);
+
+        if (null !== $own_level) {
+            return $own_level;
+        }
+
+        return self::getInheritedImageLevel($attachment_id);
+    }
+
+    public static function getInheritedImageLevel($attachment_id)
+    {
+        // An image has one URL, so it can only have one level whichever post shows it. We take the lowest level of the posts that use it, because anyone who can read one of those posts can already see the image. Only published posts count so that a draft, private or scheduled post cannot change who sees the image.
+
+        // Firm evidence of use: published posts that have this image as their featured image.
+
+        $post_ids = get_posts([
+            'post_type' => 'any',
+            'post_status' => 'publish',
+            'posts_per_page' => -1,
+            'fields' => 'ids',
+            'meta_key' => '_thumbnail_id',
+            'meta_value' => $attachment_id,
+        ]);
+
+        // The parent is only the post the image was uploaded to, which does not mean it is shown there, so it is used only when no post features the image.
+
+        if (!$post_ids) {
+            $parent_id = wp_get_post_parent_id($attachment_id);
+
+            if ($parent_id && 'publish' === get_post_status($parent_id)) {
+                $post_ids[] = $parent_id;
+            }
+        }
+
+        // A post without a level is public, so it counts as 0 and makes the image public too. No posts use the image at all means no inherited lock.
+
+        $levels = array_map(static fn ($post_id) => (float) get_post_meta($post_id, 'patreon-level', true), $post_ids);
+
+        return $levels ? min($levels) : 0.0;
+    }
+
+    public static function saveImageLevel($attachment_id, $patreon_level)
+    {
+        $removed_legacy_level = delete_post_meta($attachment_id, self::LEGACY_IMAGE_LEVEL_META_KEY);
+
+        if ('' === $patreon_level) {
+            return delete_post_meta($attachment_id, self::IMAGE_LEVEL_META_KEY) || $removed_legacy_level;
+        }
+
+        return (bool) update_post_meta($attachment_id, self::IMAGE_LEVEL_META_KEY, $patreon_level) || $removed_legacy_level;
+    }
+
     public static function checkPatronPledgeForImage($attachment_id, $user = false)
     {
         // Checks a user's pledges against an image pledge level
@@ -880,9 +970,8 @@ RewriteRule ^".$upload_dir.'/(.*)$ index.php?patreon_action=serve_patron_only_im
 
         $patron_pledge = Patreon_Wordpress::getUserPatronage();
 
-        $patreon_level = get_post_meta($attachment_id, 'patreon_level', true);
+        $patreon_level = self::getImageLevel($attachment_id);
 
-        // If no specific level is found for this image, it is not set. Then set the level to 0.
         if (!$patreon_level) {
             return 0;
         }
